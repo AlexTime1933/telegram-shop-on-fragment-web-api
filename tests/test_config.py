@@ -6,8 +6,8 @@ from decimal import Decimal
 import pytest
 
 from bot.settings import Settings, parse_env_file
-from fragment_api.exceptions import ConfigError
-from fragment_api.ton import mnemonic
+from fragment_web_api.exceptions import ConfigError
+from fragment_web_api.ton import mnemonic
 
 TWELVE = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
 

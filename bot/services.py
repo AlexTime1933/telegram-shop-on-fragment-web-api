@@ -18,7 +18,7 @@ import time
 from decimal import Decimal
 from typing import Iterable
 
-from fragment_api import (
+from fragment_web_api import (
     PAY_USDT_TON,
     Fragment,
     FragmentAPIError,
@@ -30,7 +30,7 @@ from fragment_api import (
     VerificationRequiredError,
     WalletLinkRequiredError,
 )
-from fragment_api.fragment.client import normalize_username
+from fragment_web_api.fragment.client import normalize_username
 
 from . import texts
 from .formatting import esc, num, ts

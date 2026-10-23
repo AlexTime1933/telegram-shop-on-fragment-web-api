@@ -15,17 +15,13 @@ import sys
 from pathlib import Path
 
 try:
-    import fragment_api  # noqa: F401  (installed with `pip install --no-deps ../fragment-web-api`)
+    import fragment_web_api  # noqa: F401  (installed with `pip install --no-deps ../fragment-web-api`)
 except ImportError:  # not installed: use a clone of the library next to this repository
-    for _name in ("fragment-web-api", "fragment-web-to-api"):
-        _lib = Path(__file__).resolve().parents[2] / _name
-        if (_lib / "fragment_api").is_dir():
-            sys.path.insert(0, str(_lib))
-            break
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "fragment-web-api"))
 
-from fragment_api.exceptions import ConfigError, FragmentAPIError  # noqa: E402
-from fragment_api.fragment.models import from_nano, to_nano  # noqa: E402
-from fragment_api.ton import Address  # noqa: E402
+from fragment_web_api.exceptions import ConfigError, FragmentAPIError  # noqa: E402
+from fragment_web_api.fragment.models import from_nano, to_nano  # noqa: E402
+from fragment_web_api.ton import Address  # noqa: E402
 
 from aiogram import Bot  # noqa: E402
 from aiogram.client.default import DefaultBotProperties  # noqa: E402

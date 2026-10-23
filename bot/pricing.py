@@ -6,9 +6,9 @@ import time
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal
 
-from fragment_api import Fragment
-from fragment_api.fragment.client import STARS_MAX as FRAGMENT_STARS_MAX
-from fragment_api.fragment.client import STARS_MIN as FRAGMENT_STARS_MIN
+from fragment_web_api import Fragment
+from fragment_web_api.fragment.client import STARS_MAX as FRAGMENT_STARS_MAX
+from fragment_web_api.fragment.client import STARS_MIN as FRAGMENT_STARS_MIN
 
 from . import texts
 from .models import Product

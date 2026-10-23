@@ -9,8 +9,8 @@ import urllib.parse
 import httpx
 
 from bot.payments import Invoice, PaymentProvider, PaymentStatus
-from fragment_api.ton import Address, Builder, Cell, comment_body
-from fragment_api.ton.jetton import JETTON_TRANSFER_OP
+from fragment_web_api.ton import Address, Builder, Cell, comment_body
+from fragment_web_api.ton.jetton import JETTON_TRANSFER_OP
 
 from .conftest import load_fixture
 

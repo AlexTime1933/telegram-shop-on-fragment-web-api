@@ -5,10 +5,10 @@
 #   .venv\Scripts\python -m pip install --require-hashes -r requirements.txt      (Windows)
 #   .venv/bin/python -m pip install --require-hashes -r requirements.txt          (Linux/macOS)
 #
-# The fragment-web-to-api library itself is not on PyPI: clone it next to this folder
+# The fragment-web-api library itself is not on PyPI: clone it next to this folder
 # (../fragment-web-api) or install it with  pip install --no-deps ../fragment-web-api
 #
-# 1) Dependencies of the fragment-web-to-api library (same as its requirements.lock).
+# 1) Dependencies of the fragment-web-api library (same as its requirements.lock).
 httpx==0.28.1 \
     --hash=sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc \
     --hash=sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad

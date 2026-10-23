@@ -18,10 +18,10 @@ from bot.pricing import apply_markup, parse_decimal
 from bot.settings import Settings
 from bot.shop import build_dispatcher, build_service
 from bot.storage import Storage
-from fragment_api import Fragment
-from fragment_api.fragment import FragmentClient
-from fragment_api.ton import WalletV5R1, mnemonic
-from fragment_api.ton.tonapi import TonApiClient
+from fragment_web_api import Fragment
+from fragment_web_api.fragment import FragmentClient
+from fragment_web_api.ton import WalletV5R1, mnemonic
+from fragment_web_api.ton.tonapi import TonApiClient
 
 from .fakes import FakeFragment, FakeProvider, FakeTonApi, mock_client
 
@@ -362,7 +362,7 @@ def test_price_drift_ton_mode(sim):
 
 def test_purchase_paid_in_usdt(sim):
     """Default FRAGMENT_PAYMENT_METHOD=usdt_ton: one jetton transfer through our own USDT wallet."""
-    from fragment_api.ton.jetton import parse_transfer
+    from fragment_web_api.ton.jetton import parse_transfer
 
     from .fakes import JETTON_WALLET, decode_external, parse_v5_body
 
@@ -690,7 +690,7 @@ def test_stars_limits_from_env(tmp_path, monkeypatch):
     s = Settings.load(tmp_path / ".env")
     assert (s.default_stars_min, s.default_stars_max) == (500, 5000)
     (tmp_path / ".env").write_text("FRAGMENT_COOKIES=stel_ssid=a; stel_token=b\nSHOP_STARS_MIN=10\n")
-    from fragment_api.exceptions import ConfigError
+    from fragment_web_api.exceptions import ConfigError
     with pytest.raises(ConfigError):
         Settings.load(tmp_path / ".env")
 

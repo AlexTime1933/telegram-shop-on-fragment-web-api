@@ -14,7 +14,7 @@ from bot.models import Status
 from bot.payments import PaymentStatus, XRocketProvider, build_providers
 from bot.payments.xrocket import MAINNET_URL, TESTNET_URL, map_status, sign, verify_signature
 from bot.settings import Settings
-from fragment_api.exceptions import ConfigError
+from fragment_web_api.exceptions import ConfigError
 
 from .test_shop import ADMIN, CLIENT, Sim, buy_to_invoice, wallet  # noqa: F401  (fixture)
 

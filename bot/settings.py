@@ -1,6 +1,6 @@
 """Bot settings from ``.env`` (and real environment variables, which take precedence).
 
-All secrets are read here, by the application; the ``fragment_api`` library
+All secrets are read here, by the application; the ``fragment_web_api`` library
 only receives the values. Every secret can be given inline or as a file::
 
     TON_MNEMONIC=word1 word2 ...      or  TON_MNEMONIC_FILE=seed.txt
@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from fragment_api import PAY_TON, PAY_USDT_TON, Fragment, SafetyPolicy
-from fragment_api.exceptions import ConfigError
+from fragment_web_api import PAY_TON, PAY_USDT_TON, Fragment, SafetyPolicy
+from fragment_web_api.exceptions import ConfigError
 
 _PREFIXES = ("FRAGMENT_", "TON_", "TONAPI_", "BOT_", "SHOP_", "PAYMENT_", "ROLLYPAY_", "XROCKET_", "WEBHOOK_")
 

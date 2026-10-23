@@ -7,7 +7,7 @@ import logging
 from aiogram import Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ErrorEvent
-from fragment_api import Fragment
+from fragment_web_api import Fragment
 
 from .handlers import build_router
 from .messenger import Messenger

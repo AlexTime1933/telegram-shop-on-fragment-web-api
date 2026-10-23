@@ -11,7 +11,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message, TelegramObject
-from fragment_api import PAY_USDT_TON
+from fragment_web_api import PAY_USDT_TON
 
 from .. import keyboards as kb
 from .. import texts
