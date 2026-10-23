@@ -51,6 +51,7 @@ ALLOWED_FIELDS: dict[str, set[str]] = {
     'ADMIN_INFO_CURRENT': {'text'},
     'ADMIN_MARKUP_SET': {'value'},
     'ADMIN_NOTIFY_ERROR': {'number', 'reason'},
+    'ADMIN_NOTIFY_LOW_FUNDS': {'need', 'have', 'reserved', 'currency'},
     'ADMIN_ORDERS_TITLE': {'page'},
     'ADMIN_ORDERS_TITLE_STATUS': {'status', 'page'},
     'ADMIN_RATE_SET': {'value'},

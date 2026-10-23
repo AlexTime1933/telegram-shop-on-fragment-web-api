@@ -58,7 +58,8 @@ class Sim:
 
     def __init__(self, tmp_path, wallet) -> None:
         self.frag = FakeFragment(wallet.address.to_raw())
-        self.ton = FakeTonApi()
+        self.ton = FakeTonApi(balance=10**15)  # rich wallet: the fake Fragment price is $15000
+        self.ton.usdt_balance = 10**12
         fragment = Fragment(
             FragmentClient({"stel_ssid": "s", "stel_token": "t"}, http_client=mock_client(self.frag.handle)),
             wallet=wallet,
@@ -384,10 +385,100 @@ def test_ton_mode_still_works(sim):
     assert [c for c in sim.frag.calls if c["method"] == "initBuyStarsRequest"][-1]["payment_method"] == "ton"
 
 
+def _funds_sim(sim, usdt: str, ton: str = "10"):
+    """Wallet with ``usdt`` USDT / ``ton`` TON; one order costs $15000 on the fake Fragment."""
+    sim.ton.usdt_balance = int(Decimal(usdt) * 10**6)
+    sim.ton.balance = int(Decimal(ton) * 10**9)
+
+
+def test_no_order_without_funds(sim):
+    _funds_sim(sim, usdt="15000")  # < 15000 * 1.05 (price may still rise 5 %)
+    assert _try_order(sim, CLIENT) == 0
+    assert "временно недоступен" in sim.last().text and "USDT" not in sim.last().text
+    alerts = [t for t in sim.to(ADMIN) if "Не хватает средств" in t]
+    assert len(alerts) == 1 and "нужно 15750.00 USDT, есть 15000.00 USDT" in alerts[0]
+    sim.say("@alice", CLIENT)  # tries again: still refused, but admins are not spammed
+    assert len([t for t in sim.to(ADMIN) if "Не хватает средств" in t]) == 1
+
+
+def _try_order(sim, uid=ADMIN):
+    """Go through the order flow; returns the number of orders afterwards."""
+    sim.say("/start", uid)
+    sim.press(sim.button("⭐ Купить Stars"), uid)
+    sim.press(sim.button("100 ⭐"), uid)
+    sim.say("@alice", uid)
+    return sim.service.storage.count_orders()
+
+
+def test_funds_reserved_for_orders_with_invoice(sim):
+    _funds_sim(sim, usdt="20000")  # enough for one order (15750), not for two
+    first = buy_to_invoice(sim)
+    sim.press(sim.button("🧪 Fake pay"))  # invoice created: 15750 USDT reserved for it
+    assert sim.service.storage.get(first).payment_id
+    assert _try_order(sim) == 1  # 20000 - 15750 left: no second order
+    assert "временно недоступен" in sim.last().text
+    # the first order expires -> the reservation is released
+    order = sim.service.storage.get(first)
+    asyncio.get_event_loop().run_until_complete(sim.service.expire(order))
+    assert _try_order(sim) == 2
+
+
+def test_concurrent_invoices_share_funds(sim):
+    from bot.services import ShopError
+
+    first, second = buy_to_invoice(sim), buy_to_invoice(sim)
+    _funds_sim(sim, usdt="20000")  # enough for one invoice only
+
+    async def pay(oid):
+        try:
+            return await sim.service.start_payment(oid, "fake", ADMIN)
+        except ShopError as exc:
+            return exc
+
+    results = asyncio.get_event_loop().run_until_complete(asyncio.gather(pay(first), pay(second)))
+    assert sum(isinstance(r, ShopError) for r in results) == 1
+    assert [bool(sim.service.storage.get(o).payment_id) for o in (first, second)].count(True) == 1
+
+
+def test_invoice_refused_when_funds_ran_out(sim):
+    oid = buy_to_invoice(sim)  # order created while the wallet was rich
+    _funds_sim(sim, usdt="100")
+    sim.press(sim.button("🧪 Fake pay"))
+    assert sim.alerts()[-1] == "😔 Сейчас этот товар временно недоступен. Попробуйте позже."
+    assert sim.service.storage.get(oid).payment_id is None  # no invoice, the client pays nothing
+    _funds_sim(sim, usdt="20000")  # topped up: the same order can be paid now
+    sim.press(f"o:pay:{oid}:fake")
+    assert sim.service.storage.get(oid).payment_id
+
+
+def test_funds_need_ton_for_gas(sim):
+    _funds_sim(sim, usdt="20000", ton="0.09")  # 0.05 gas + 0.05 reserve = 0.1 TON needed
+    assert _try_order(sim) == 0
+    assert any("TON" in t and "Не хватает средств" in t for t in sim.to(ADMIN))
+
+
+def test_funds_ton_mode(sim):
+    sim.service.payment_method = "ton"
+    _funds_sim(sim, usdt="0", ton="11500")  # 11007.11 TON * 1.05 + 0.05 = 11557.52 > 11500
+    assert _try_order(sim) == 0
+    assert any("нужно 11557.52 TON" in t for t in sim.to(ADMIN))
+    _funds_sim(sim, usdt="0", ton="11600")  # USDT is not needed in TON mode
+    assert _try_order(sim) == 1
+
+
+def test_balance_unavailable_means_no_order(sim):
+    async def broken():
+        raise RuntimeError("tonapi is down")
+
+    sim.service.fragment.get_balance = broken
+    assert _try_order(sim) == 0
+    assert "⚠️ Ошибка. Попробуйте позже" in sim.last().text and "tonapi" not in sim.last().text
+
+
 def test_not_enough_usdt(sim):
-    sim.ton.usdt_balance = 10**6  # 1 USDT < 1.5 USDT asked
     oid = buy_to_invoice(sim)
     confirm_paid(sim, oid)
+    sim.ton.usdt_balance = 10**6  # USDT was spent elsewhere after the payment: 1 USDT < 1.5 USDT asked
     asyncio.get_event_loop().run_until_complete(sim.service.fulfill(oid, actor="t"))
     order = sim.service.storage.get(oid)
     assert order.status == Status.ERROR and "не хватает средств" in order.error and "USDT" in order.error

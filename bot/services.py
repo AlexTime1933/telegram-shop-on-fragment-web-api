@@ -51,6 +51,11 @@ ORDER_LIMIT_WINDOW = 24 * 3600  # seconds
 # How long expired orders are still polled for a late payment (webhook mode gets it by webhook).
 LATE_PAYMENT_WINDOW = 3600  # seconds
 
+# Funds check: TON Fragment asks to attach for gas to one USDT payment (the unused part comes back).
+USDT_GAS_TON = Decimal("0.05")
+# At most one "not enough funds" alert to admins per this many seconds.
+LOW_FUNDS_ALERT_INTERVAL = 1800
+
 
 class ShopError(Exception):
     """A problem to show to the user as is (always a text from ``texts.py``, never a raw error)."""
@@ -83,6 +88,8 @@ class OrderService:
         self._order_locks: dict[int, asyncio.Lock] = {}  # one invoice creation at a time per order
         #: how Fragment is paid: "usdt_ton" or "ton" (FRAGMENT_PAYMENT_METHOD)
         self.payment_method = PAY_USDT_TON
+        self._funds_lock = asyncio.Lock()  # funds are checked and reserved for one new invoice at a time
+        self._low_funds_alert_at = 0.0
 
     # ------------------------------------------------------------- helpers
     def is_admin(self, user_id: int) -> bool:
@@ -162,6 +169,7 @@ class OrderService:
         except (FragmentAPIError, ValueError) as exc:
             log_client_error(exc, user_id=buyer_id, where="price quote")
             raise ShopError(texts.ERR_GENERIC) from exc
+        await self.check_funds(quote.fragment_usd, quote.fragment_ton, user_id=buyer_id)
         order = self.storage.create_order(
             buyer_id=buyer_id, buyer_chat_id=chat_id, buyer_username=buyer_username,
             product=product, quantity=quantity, recipient=recipient,
@@ -210,36 +218,97 @@ class OrderService:
             provider = next((p for p in self.providers_for(user_id) if p.code == provider_code), None)
             if provider is None:
                 raise ShopError(texts.ERR_METHOD_UNAVAILABLE)
-            try:
-                invoice = await provider.create_invoice(order, provider.amount_for(order))
-            except PaymentError as exc:
-                log_client_error(exc, user_id=user_id, order=order, where=f"invoice {provider.code}")
-                raise ShopError(texts.ERR_GENERIC) from exc
-            # Anti-fraud: a NEW invoice must be unpaid and must not belong to another order
-            # (e.g. a provider handing out a link that was already paid).
-            reused = self.storage.get_by_payment(provider.code, invoice.payment_id)
-            if reused is not None or (invoice.status not in (None, PaymentStatus.PENDING)):
-                reason = (texts.REASON_INVOICE_REUSED.format(other=reused.number) if reused
-                          else texts.REASON_INVOICE_NOT_NEW.format(status=invoice.status.value))
-                await self._alert_once(order, f"suspicious:{provider.code}:{invoice.payment_id}",
-                                       texts.ADMIN_NOTIFY_SUSPICIOUS_INVOICE, provider=provider.code,
-                                       payment_id=invoice.payment_id, reason=reason)
-                log.error("order %s (%s), user %s: invoice %s/%s rejected: %s", order.number, order.code,
-                          user_id, provider.code, invoice.payment_id, reason)
-                raise ShopError(texts.ERR_GENERIC)
-            # the order now expires together with the payment link
-            deadline = invoice.expires_at or time.time() + self.settings.payment_timeout_min * 60
-            extra = dict(order.extra, payment_expires_at=deadline, payment_url=invoice.url,
-                         payment_instructions=invoice.instructions)
-            order = self.storage.update(order.id, payment_provider=provider.code, payment_id=invoice.payment_id,
-                                        payment_amount=invoice.amount, payment_currency=invoice.currency,
-                                        extra=extra)
-            self.storage.add_payment(order.id, provider.code, invoice.payment_id, invoice.amount,
-                                     invoice.currency, invoice.expires_at)
-            self.storage.add_event(order.id, f"user:{user_id}", None, None,
-                                   texts.REASON_INVOICE.format(provider=provider.code, payment_id=invoice.payment_id,
-                                                               amount=invoice.amount, currency=invoice.currency))
-            return order, invoice
+            # The wallet must be able to pay Fragment for this order on top of all orders that
+            # already have an invoice; checked and reserved under one lock (no two invoices race).
+            async with self._funds_lock:
+                await self.check_funds(order.fragment_price_usd, order.fragment_price_ton, user_id=user_id,
+                                       order=order)
+                return await self._create_invoice(order, provider, user_id)
+
+    async def _create_invoice(self, order: Order, provider: PaymentProvider, user_id: int) -> tuple[Order, Invoice]:
+        try:
+            invoice = await provider.create_invoice(order, provider.amount_for(order))
+        except PaymentError as exc:
+            log_client_error(exc, user_id=user_id, order=order, where=f"invoice {provider.code}")
+            raise ShopError(texts.ERR_GENERIC) from exc
+        # Anti-fraud: a NEW invoice must be unpaid and must not belong to another order
+        # (e.g. a provider handing out a link that was already paid).
+        reused = self.storage.get_by_payment(provider.code, invoice.payment_id)
+        if reused is not None or (invoice.status not in (None, PaymentStatus.PENDING)):
+            reason = (texts.REASON_INVOICE_REUSED.format(other=reused.number) if reused
+                      else texts.REASON_INVOICE_NOT_NEW.format(status=invoice.status.value))
+            await self._alert_once(order, f"suspicious:{provider.code}:{invoice.payment_id}",
+                                   texts.ADMIN_NOTIFY_SUSPICIOUS_INVOICE, provider=provider.code,
+                                   payment_id=invoice.payment_id, reason=reason)
+            log.error("order %s (%s), user %s: invoice %s/%s rejected: %s", order.number, order.code,
+                      user_id, provider.code, invoice.payment_id, reason)
+            raise ShopError(texts.ERR_GENERIC)
+        # the order now expires together with the payment link
+        deadline = invoice.expires_at or time.time() + self.settings.payment_timeout_min * 60
+        extra = dict(order.extra, payment_expires_at=deadline, payment_url=invoice.url,
+                     payment_instructions=invoice.instructions)
+        order = self.storage.update(order.id, payment_provider=provider.code, payment_id=invoice.payment_id,
+                                    payment_amount=invoice.amount, payment_currency=invoice.currency,
+                                    extra=extra)
+        self.storage.add_payment(order.id, provider.code, invoice.payment_id, invoice.amount,
+                                 invoice.currency, invoice.expires_at)
+        self.storage.add_event(order.id, f"user:{user_id}", None, None,
+                               texts.REASON_INVOICE.format(provider=provider.code, payment_id=invoice.payment_id,
+                                                           amount=invoice.amount, currency=invoice.currency))
+        return order, invoice
+
+    # ------------------------------------------------------------------ funds
+    def _cost(self, fragment_usd: Decimal, fragment_ton: Decimal) -> tuple[Decimal, Decimal]:
+        """(USDT, TON) the wallet needs to buy one order on Fragment, incl. the allowed price rise."""
+        k = 1 + MAX_PRICE_DRIFT
+        if self.payment_method == PAY_USDT_TON:
+            return fragment_usd * k, USDT_GAS_TON
+        return Decimal(0), fragment_ton * k
+
+    def reserved_funds(self, exclude_order_id: int | None = None) -> tuple[Decimal, Decimal]:
+        """(USDT, TON) promised to orders that will be bought: paid ones and unpaid ones with an invoice."""
+        orders = self.storage.orders_with_status(Status.PAID) + [
+            o for o in self.storage.orders_with_status(Status.AWAITING_PAYMENT) if o.payment_id]
+        usdt = ton = Decimal(0)
+        for o in orders:
+            if o.id != exclude_order_id:
+                u, t = self._cost(o.fragment_price_usd, o.fragment_price_ton)
+                usdt, ton = usdt + u, ton + t
+        return usdt, ton
+
+    async def check_funds(self, fragment_usd: Decimal, fragment_ton: Decimal, *, user_id: int,
+                          order: Order | None = None) -> None:
+        """Refuse new orders / invoices the wallet could not pay for on Fragment.
+
+        The client sees "temporarily unavailable"; admins get an alert (at most every 30 min).
+        """
+        need_usdt, need_ton = self._cost(fragment_usd, fragment_ton)
+        res_usdt, res_ton = self.reserved_funds(order.id if order else None)
+        usdt_mode = self.payment_method == PAY_USDT_TON
+        try:
+            have_ton = await self.fragment.get_balance()
+            have_usdt = await self.fragment.get_usdt_balance() if usdt_mode else Decimal(0)
+        except Exception as exc:  # no wallet / tonapi down: do not take money we may not be able to spend
+            log_client_error(exc, user_id=user_id, order=order, where="wallet balance")
+            raise ShopError(texts.ERR_GENERIC) from exc
+        reserve_ton = self.fragment.safety.fee_reserve_ton
+        lacks_usdt = usdt_mode and have_usdt < res_usdt + need_usdt
+        lacks_ton = have_ton < res_ton + need_ton + reserve_ton
+        if not (lacks_usdt or lacks_ton):
+            return
+        if lacks_usdt:
+            need, have, reserved, cur = res_usdt + need_usdt, have_usdt, res_usdt, "USDT"
+        else:
+            need, have, reserved, cur = res_ton + need_ton + reserve_ton, have_ton, res_ton, "TON"
+        need, have, reserved = (v.quantize(Decimal("0.01")) for v in (need, have, reserved))
+        log.warning("not enough funds for a new %s (user %s): need %s %s, have %s, reserved %s",
+                    f"invoice of order {order.number}" if order else "order", user_id, need, cur, have, reserved)
+        now = time.time()
+        if now - self._low_funds_alert_at >= LOW_FUNDS_ALERT_INTERVAL:
+            self._low_funds_alert_at = now
+            await self._notify_admins(texts.ADMIN_NOTIFY_LOW_FUNDS.format(need=need, have=have,
+                                                                          reserved=reserved, currency=cur))
+        raise ShopError(texts.ERR_OUT_OF_STOCK)
 
     async def check_payment(self, order_id: int, user_id: int | None = None) -> Order:
         """Ask the provider about the order's current payment and apply the result."""

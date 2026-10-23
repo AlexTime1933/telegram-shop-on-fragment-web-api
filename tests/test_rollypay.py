@@ -285,8 +285,8 @@ def test_notifications_one_to_buyer_none_to_admin(rp):
 
 def test_admin_notified_on_error(rp):
     sim, fake, _ = rp
-    sim.ton.usdt_balance = 0
     oid = pay_with_rollypay(sim)
+    sim.ton.usdt_balance = 0  # the USDT was spent elsewhere after the invoice was created
     before_admin = len(sim.to(ADMIN))
     fake.set("pay_1", "paid")
     _webhook(sim, {"payment_id": "pay_1", "status": "paid"})

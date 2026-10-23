@@ -36,6 +36,10 @@ from **your own TON wallet**, in USDT (TON network) or TON. Fragment access goes
   - an order is bought at most once, and a purchase interrupted by a restart is never repeated;
   - a purchase stops if the Fragment price grew by more than 5 %;
   - each customer can have at most 5 unpaid, expired or failed orders per 24 h.
+- **Wallet funds check.** Before an order and again before an invoice is created, the bot checks
+  that the wallet can pay Fragment for it **on top of** what is already promised to other orders
+  (paid ones and ones with an invoice): price + 5 % for a price rise, gas and a TON reserve. If not,
+  the customer sees "temporarily unavailable", no invoice is created and admins get an alert.
 - Customers never see technical errors. The server log gets the time, user, order and error text.
 - Admins are notified about problems only; customers get one message when the order is done.
 
@@ -197,6 +201,10 @@ Telegram. Он берёт цену с Fragment, добавляет вашу на
   - заказ покупается не больше одного раза, покупка, прерванная перезапуском, не повторяется;
   - покупка останавливается, если цена на Fragment выросла больше чем на 5 %;
   - у клиента не больше 5 неоплаченных, истёкших или ошибочных заказов за 24 часа.
+- **Проверка средств на кошельке.** Перед созданием заказа и ещё раз перед выставлением счёта бот
+  проверяет, что кошелёк сможет оплатить его на Fragment **сверх** уже обещанного другим заказам
+  (оплаченным и тем, у кого есть счёт): цена + 5 % на рост цены, газ и резерв TON. Если нет, клиент
+  видит «товар временно недоступен», счёт не создаётся, админы получают уведомление.
 - Клиент никогда не видит технических ошибок. В лог сервера пишутся время, пользователь, заказ и
   текст ошибки.
 - Админам приходят уведомления только о проблемах, клиенту — одно сообщение, когда заказ выполнен.
